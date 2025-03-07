@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Book, PlusCircle, Calendar, Search, Tags, Bookmark, Edit, Trash2, Plus } from 'lucide-react';
+import { Book, PlusCircle, Calendar, Search, Tags, Bookmark, Edit, Trash2, Plus, Mail, Lock, User } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 interface DiaryBook {
@@ -22,6 +22,116 @@ interface DiaryEntry {
   books: DiaryBook[];
 }
 
+function AuthForm() {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password
+        });
+        if (error) throw error;
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center">
+      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <div className="text-center mb-8">
+          <Book className="h-12 w-12 text-purple-600 mx-auto mb-4" />
+          <h1 className="text-2xl font-semibold mb-2">Welcome to My Diary</h1>
+          <p className="text-gray-600">
+            {isLogin ? 'Sign in to continue' : 'Create an account to get started'}
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Email
+            </label>
+            <div className="relative">
+              <Mail className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="pl-10 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Enter your email"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
+            <div className="relative">
+              <Lock className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pl-10 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Enter your password"
+                required
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 transition-colors disabled:bg-purple-300"
+          >
+            {loading ? 'Please wait...' : (isLogin ? 'Sign In' : 'Sign Up')}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError('');
+            }}
+            className="text-purple-600 hover:text-purple-700 text-sm"
+          >
+            {isLogin ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [books, setBooks] = useState<DiaryBook[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -36,15 +146,21 @@ function App() {
   const [editingEntry, setEditingEntry] = useState<string | null>(null);
   const [isAddingBook, setIsAddingBook] = useState(false);
   const [newBook, setNewBook] = useState({ name: '', description: '' });
+  const [user, setUser] = useState<any>(null);
 
-  // Carregar dados iniciais
   useEffect(() => {
-    loadBooks();
-    loadTags();
-    loadEntries();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadBooks();
+        loadTags();
+        loadEntries();
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Funções de carregamento
   const loadBooks = async () => {
     const { data, error } = await supabase
       .from('books')
@@ -52,7 +168,7 @@ function App() {
       .order('created_at', { ascending: true });
     
     if (error) {
-      console.error('Erro ao carregar livros:', error);
+      console.error('Error loading books:', error);
       return;
     }
     
@@ -66,7 +182,7 @@ function App() {
       .order('name');
     
     if (error) {
-      console.error('Erro ao carregar tags:', error);
+      console.error('Error loading tags:', error);
       return;
     }
     
@@ -86,7 +202,7 @@ function App() {
       .order('created_at', { ascending: false });
 
     if (entriesError) {
-      console.error('Erro ao carregar entradas:', entriesError);
+      console.error('Error loading entries:', entriesError);
       return;
     }
 
@@ -102,16 +218,15 @@ function App() {
     setEntries(formattedEntries);
   };
 
-  // Gerenciamento de livros
   const addBook = async () => {
-    if (!newBook.name.trim()) return;
+    if (!newBook.name.trim() || !user) return;
 
     const { error } = await supabase
       .from('books')
-      .insert([newBook]);
+      .insert([{ ...newBook, user_id: user.id }]);
 
     if (error) {
-      console.error('Erro ao adicionar livro:', error);
+      console.error('Error adding book:', error);
       return;
     }
 
@@ -127,7 +242,7 @@ function App() {
       .eq('id', bookId);
 
     if (error) {
-      console.error('Erro ao deletar livro:', error);
+      console.error('Error deleting book:', error);
       return;
     }
 
@@ -135,16 +250,15 @@ function App() {
     await loadEntries();
   };
 
-  // Gerenciamento de tags
   const addTag = async () => {
-    if (!newTag.trim()) return;
+    if (!newTag.trim() || !user) return;
 
     const { error } = await supabase
       .from('tags')
-      .insert([{ name: newTag }]);
+      .insert([{ name: newTag, user_id: user.id }]);
 
     if (error) {
-      console.error('Erro ao adicionar tag:', error);
+      console.error('Error adding tag:', error);
       return;
     }
 
@@ -160,28 +274,26 @@ function App() {
     );
   };
 
-  // Gerenciamento de entradas
   const handleSave = async () => {
-    if (!newEntry.title || !newEntry.content || selectedBooks.length === 0) return;
+    if (!newEntry.title || !newEntry.content || selectedBooks.length === 0 || !user) return;
 
     const entryData = {
       title: newEntry.title,
-      content: newEntry.content
+      content: newEntry.content,
+      user_id: user.id
     };
 
     if (editingEntry) {
-      // Atualizar entrada existente
       const { error: updateError } = await supabase
         .from('entries')
         .update(entryData)
         .eq('id', editingEntry);
 
       if (updateError) {
-        console.error('Erro ao atualizar entrada:', updateError);
+        console.error('Error updating entry:', updateError);
         return;
       }
 
-      // Atualizar relações
       await supabase
         .from('entry_books')
         .delete()
@@ -193,7 +305,6 @@ function App() {
         .eq('entry_id', editingEntry);
 
     } else {
-      // Criar nova entrada
       const { data: newEntryData, error: insertError } = await supabase
         .from('entries')
         .insert([entryData])
@@ -201,11 +312,10 @@ function App() {
         .single();
 
       if (insertError || !newEntryData) {
-        console.error('Erro ao criar entrada:', insertError);
+        console.error('Error creating entry:', insertError);
         return;
       }
 
-      // Inserir relações
       const bookRelations = selectedBooks.map(bookId => ({
         entry_id: newEntryData.id,
         book_id: bookId
@@ -251,14 +361,13 @@ function App() {
       .eq('id', entryId);
 
     if (error) {
-      console.error('Erro ao deletar entrada:', error);
+      console.error('Error deleting entry:', error);
       return;
     }
 
     await loadEntries();
   };
 
-  // Filtros
   const filteredEntries = entries.filter(entry => {
     const matchesBook = selectedBookId === 'all' || 
       entry.books.some(book => book.id === selectedBookId);
@@ -271,41 +380,53 @@ function App() {
     return matchesBook && matchesSearch;
   });
 
+  if (!user) {
+    return <AuthForm />;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50">
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Book className="h-6 w-6 text-purple-600" />
-            <h1 className="text-xl font-semibold text-gray-900">Meus Diários</h1>
+            <h1 className="text-xl font-semibold text-gray-900">My Diary</h1>
           </div>
-          <button
-            onClick={() => {
-              setIsWriting(true);
-              setEditingEntry(null);
-              setNewEntry({ title: '', content: '' });
-              setSelectedBooks([]);
-              setSelectedTags([]);
-            }}
-            className="flex items-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
-          >
-            <PlusCircle className="h-5 w-5" />
-            <span>Nova Entrada</span>
-          </button>
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => {
+                setIsWriting(true);
+                setEditingEntry(null);
+                setNewEntry({ title: '', content: '' });
+                setSelectedBooks([]);
+                setSelectedTags([]);
+              }}
+              className="flex items-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              <PlusCircle className="h-5 w-5" />
+              <span>New Entry</span>
+            </button>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="text-gray-600 hover:text-gray-800"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        {/* Gerenciamento de Livros */}
+        {/* Books Management */}
         <div className="mb-8 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Meus Livros</h2>
+            <h2 className="text-lg font-semibold">My Books</h2>
             <button
               onClick={() => setIsAddingBook(true)}
               className="flex items-center space-x-2 text-purple-600 hover:text-purple-700"
             >
               <Plus className="h-5 w-5" />
-              <span>Novo Livro</span>
+              <span>New Book</span>
             </button>
           </div>
 
@@ -313,14 +434,14 @@ function App() {
             <div className="space-y-4">
               <input
                 type="text"
-                placeholder="Nome do livro"
+                placeholder="Book name"
                 value={newBook.name}
                 onChange={(e) => setNewBook({ ...newBook, name: e.target.value })}
                 className="w-full p-2 border border-gray-300 rounded-md"
               />
               <input
                 type="text"
-                placeholder="Descrição (opcional)"
+                placeholder="Description (optional)"
                 value={newBook.description}
                 onChange={(e) => setNewBook({ ...newBook, description: e.target.value })}
                 className="w-full p-2 border border-gray-300 rounded-md"
@@ -330,13 +451,13 @@ function App() {
                   onClick={() => setIsAddingBook(false)}
                   className="px-4 py-2 text-gray-600 hover:text-gray-800"
                 >
-                  Cancelar
+                  Cancel
                 </button>
                 <button
                   onClick={addBook}
                   className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
                 >
-                  Adicionar
+                  Add
                 </button>
               </div>
             </div>
@@ -367,12 +488,12 @@ function App() {
         {isWriting ? (
           <div className="bg-white rounded-lg shadow-lg p-6">
             <h2 className="text-lg font-semibold mb-4">
-              {editingEntry ? 'Editar Entrada' : 'Nova Entrada'}
+              {editingEntry ? 'Edit Entry' : 'New Entry'}
             </h2>
             
-            {/* Seleção de Livros */}
+            {/* Book Selection */}
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Selecione os Livros</h3>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Select Books</h3>
               <div className="flex flex-wrap gap-2">
                 {books.map(book => (
                   <button
@@ -397,20 +518,20 @@ function App() {
 
             <input
               type="text"
-              placeholder="Título da entrada"
+              placeholder="Entry title"
               value={newEntry.title}
               onChange={(e) => setNewEntry({ ...newEntry, title: e.target.value })}
               className="w-full mb-4 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
             
             <textarea
-              placeholder="Escreva seus pensamentos aqui..."
+              placeholder="Write your thoughts here..."
               value={newEntry.content}
               onChange={(e) => setNewEntry({ ...newEntry, content: e.target.value })}
               className="w-full h-48 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none mb-4"
             />
 
-            {/* Sistema de Tags */}
+            {/* Tags */}
             <div className="mb-4">
               <h3 className="text-sm font-medium text-gray-700 mb-2">Tags</h3>
               <div className="flex flex-wrap gap-2 mb-4">
@@ -431,7 +552,7 @@ function App() {
               <div className="flex items-center space-x-2">
                 <input
                   type="text"
-                  placeholder="Nova tag..."
+                  placeholder="New tag..."
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addTag()}
@@ -454,20 +575,20 @@ function App() {
                 }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
               >
-                Cancelar
+                Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={!newEntry.title || !newEntry.content || selectedBooks.length === 0}
                 className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {editingEntry ? 'Atualizar' : 'Salvar'}
+                {editingEntry ? 'Update' : 'Save'}
               </button>
             </div>
           </div>
         ) : (
           <div>
-            {/* Filtros */}
+            {/* Filters */}
             <div className="mb-6">
               <div className="flex flex-wrap gap-2">
                 <button
@@ -478,7 +599,7 @@ function App() {
                       : 'bg-gray-100 text-gray-600 border-gray-200'
                     } border hover:bg-purple-50 transition-colors`}
                 >
-                  Todos os Livros
+                  All Books
                 </button>
                 {books.map(book => (
                   <button
@@ -498,12 +619,12 @@ function App() {
             </div>
 
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">Minhas Entradas</h2>
+              <h2 className="text-lg font-semibold text-gray-900">My Entries</h2>
               <div className="relative">
                 <Search className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Pesquisar entradas..."
+                  placeholder="Search entries..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -537,7 +658,7 @@ function App() {
                   <h3 className="text-lg font-semibold mb-2">{entry.title}</h3>
                   <p className="text-gray-600 line-clamp-3 mb-3">{entry.content}</p>
                   
-                  {/* Tags da entrada */}
+                  {/* Entry Tags */}
                   {entry.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-3">
                       {entry.tags.map(tag => (
@@ -551,7 +672,7 @@ function App() {
                     </div>
                   )}
                   
-                  {/* Livros da entrada */}
+                  {/* Entry Books */}
                   <div className="flex flex-wrap gap-1">
                     {entry.books.map(book => (
                       <span
@@ -570,7 +691,7 @@ function App() {
             {filteredEntries.length === 0 && (
               <div className="text-center py-12">
                 <Book className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">Nenhuma entrada encontrada. Comece a escrever!</p>
+                <p className="text-gray-500">No entries found. Start writing!</p>
               </div>
             )}
           </div>
